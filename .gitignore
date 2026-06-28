@@ -1,0 +1,21 @@
+# Secrets — never commit (BRIEF §9)
+.env
+*.env.local
+infra/vaultwarden.env.local
+
+# Node / build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

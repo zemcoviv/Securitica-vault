@@ -1,0 +1,48 @@
+# Securitica Vault — edge reverse proxy (BRIEF §9).
+#
+# Caddy terminates TLS (auto HTTPS) and sets the AUTHORITATIVE security headers:
+# strict CSP (no unsafe-inline, no third-party CDNs), HSTS, frame-ancestors for
+# Telegram. SRI is emitted by the Vite build on the bundle's own assets; the CSP
+# here forbids any script source we did not ship.
+#
+# Replace vault.example.com with your domain. Two virtual hosts share it:
+#   /vault/*  -> Vaultwarden (client talks to it DIRECTLY for sync)
+#   /*        -> thin backend (Mini App static + /api/session)
+
+vault.example.com {
+	encode zstd gzip
+
+	# ---- Security headers (apply to every response) ----
+	header {
+		# HSTS: 2 years, include subdomains, preload-eligible.
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		# Strict CSP. 'self' covers our hashed bundle; telegram.org for the
+		# WebApp SDK only. No 'unsafe-inline' for scripts (BRIEF §10 M4 / §11.6).
+		Content-Security-Policy "default-src 'none'; script-src 'self' https://telegram.org; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors https://web.telegram.org https://*.telegram.org; object-src 'none'"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()"
+		-Server
+	}
+
+	# ---- Vaultwarden (direct client sync; no secrets touch our backend) ----
+	handle_path /vault/* {
+		reverse_proxy vaultwarden:80
+	}
+
+	# Vaultwarden admin panel — keep behind extra auth and not public.
+	# Uncomment + restrict by IP/basic-auth if you enable ADMIN_TOKEN.
+	# handle /vault/admin* {
+	# 	@office remote_ip 203.0.113.0/24
+	# 	handle @office {
+	# 		reverse_proxy vaultwarden:80
+	# 	}
+	# 	respond 403
+	# }
+
+	# ---- Thin backend: Mini App static + initData verification ----
+	handle {
+		reverse_proxy miniapp-server:8000
+	}
+}

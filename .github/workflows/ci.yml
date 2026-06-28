@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  miniapp:
+    name: Mini App — typecheck, build, security tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci || npm install
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build (asserts no inline scripts; SRI-friendly bundle)
+        run: npm run build
+      - name: Unit + security tests (§11.1 canary, §11.5 compat)
+        run: npm test
+
+  server:
+    name: Server — initData tamper tests (§11.3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - name: initData verification tests
+        run: pytest tests/security/test_initdata.py -q
+
+  csp-audit:
+    name: CSP / SRI audit (§11.6)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci || npm install
+      - run: npm run build
+      - name: Assert no unsafe-inline and SRI present
+        run: node tests/security/csp-audit.mjs

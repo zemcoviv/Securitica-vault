@@ -1,0 +1,97 @@
+# Securitica Vault — M0 infrastructure (BRIEF §4, §10).
+#
+#   docker compose up -d
+#
+# Services:
+#   db              PostgreSQL for Vaultwarden
+#   vaultwarden     Bitwarden-compatible backend (signups closed)
+#   miniapp-server  thin backend: Mini App static + initData verification
+#   bot             aiogram launcher + notifications (allowlist)
+#   caddy           TLS edge + authoritative CSP/HSTS
+#
+# Secrets (BOT_TOKEN, DB password, ADMIN_TOKEN) come from a .env file that is
+# NOT committed. See .env.example.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vaultwarden
+      POSTGRES_USER: vaultwarden
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vaultwarden"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  vaultwarden:
+    image: vaultwarden/server:1.32.7-alpine
+    restart: unless-stopped
+    env_file:
+      - infra/vaultwarden.env
+    environment:
+      DATABASE_URL: postgresql://vaultwarden:${DB_PASSWORD}@db:5432/vaultwarden
+      ADMIN_TOKEN: ${VW_ADMIN_TOKEN:-}
+    volumes:
+      - vw-data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+
+  miniapp-server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      args:
+        # Public origins only — no secrets baked into the bundle.
+        VITE_SERVER_URL: ""
+        VITE_VAULTWARDEN_URL: "/vault"
+    restart: unless-stopped
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN:?set BOT_TOKEN in .env}
+      INITDATA_TTL_SECONDS: "86400"
+    networks: [internal]
+
+  bot:
+    build:
+      context: ./bot
+    restart: unless-stopped
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN:?set BOT_TOKEN in .env}
+      MINIAPP_URL: ${MINIAPP_URL:-https://vault.example.com/}
+      ALLOWLIST_CHAT_IDS: ${ALLOWLIST_CHAT_IDS:-}
+    networks: [internal, egress]
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - vaultwarden
+      - miniapp-server
+    networks: [internal, egress]
+
+volumes:
+  db-data:
+  vw-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  # internal has no direct internet route; egress is for services that must
+  # reach Telegram / ACME.
+  internal:
+    internal: true
+  egress:

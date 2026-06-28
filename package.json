@@ -1,0 +1,24 @@
+{
+  "name": "securitica-vault-miniapp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Zero-knowledge Bitwarden-compatible vault client as a Telegram Mini App (M0+M1).",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build && node scripts/inject-sri.mjs dist",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hash-wasm": "^4.11.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "~5.6.3",
+    "vite": "^5.4.2",
+    "vitest": "^2.0.5"
+  }
+}

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!--
+      Strict CSP (BRIEF §9). No third-party CDNs, no unsafe-inline scripts.
+      The Telegram WebApp SDK is loaded from telegram.org and is the ONLY
+      external script origin. connect-src is restricted to our server + the
+      Vaultwarden origin (set these to your real hosts at deploy time). The
+      authoritative CSP is also sent as a response header by Caddy (infra/);
+      this meta tag is defence-in-depth for the static bundle.
+
+      NOTE: 'self' covers our hashed bundle assets (Vite emits no inline JS).
+      Tighten/duplicate connect-src to your deployment hosts.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' https://telegram.org; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors https://web.telegram.org https://*.telegram.org; object-src 'none'"
+    />
+    <title>Securitica Vault</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <main id="app" aria-live="polite">
+      <noscript>Securitica Vault requires JavaScript.</noscript>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
