@@ -29,6 +29,20 @@
   contents, keys, or plaintext.
 - **Strict CSP + SRI** on the static bundle (`infra/Caddyfile`,
   `scripts/inject-sri.mjs`), audited in CI (§11.6).
+- **No reveal without a fresh biometric confirmation** — `reveal/biometry.ts`
+  gates every decrypt-and-display through `Telegram.WebApp.BiometryManager`
+  (native Face/Touch ID) or a WebAuthn user-verification fallback; "denied"
+  and "unavailable" both fail closed (`reveal/engine.ts`). Verified by the
+  §11.4 test.
+- **Reveal is DOM-scoped and self-scrubbing** — the plaintext lives only in
+  the text node the caller hands to `revealInto`; on release (hold mode),
+  timeout (20 s fallback), or auto-lock, the node is blanked *and* removed,
+  and the decrypted byte buffer is wiped (`reveal/engine.ts`,
+  `vault/autolock.ts:stopAllActiveReveals`).
+- **Clipboard auto-clear is non-destructive** — `reveal/clipboard.ts` only
+  overwrites the clipboard if it still holds exactly what we put there,
+  so it can't clobber something the user copied from elsewhere in the
+  interim.
 
 ## Honest limitation (BRIEF §7)
 
@@ -41,8 +55,8 @@ native memory isolation. We mitigate by:
 - deriving keys only inside the WebView and wiping intermediate key buffers
   (`crypto/primitives.ts:wipe`, called in `unlock.ts`),
 - auto-locking on inactivity and zeroing the user key (`vault/autolock.ts`),
-- (M2) minimising the reveal window: biometry gate, press-and-hold / 20 s,
-  DOM scrub, clipboard auto-clear,
+- minimising the reveal window: biometry gate, press-and-hold / 20 s fallback
+  timer, DOM scrub, clipboard auto-clear (`reveal/`),
 - a strict CSP + SRI so a swapped bundle (the main residual risk — exfiltration
   at reveal time) cannot load third-party script.
 

@@ -1,13 +1,15 @@
 /**
- * Mini App entry — M1: identity check → unlock → decrypted record list.
+ * Mini App entry — M1 unlock/sync + M2 ephemeral reveal.
  *
- * Reveal (M2), create/edit + generator (M3) are out of scope here; the list is
- * read-only and passwords are NOT decrypted on this screen.
+ * Create/edit + generator (M3) are still out of scope; the list is read-only.
+ * Passwords are only ever decrypted for the duration of a gated reveal
+ * (reveal/engine.ts) — never eagerly when the list renders.
  */
 import { VaultwardenClient } from "./api/client";
 import { verifySession } from "./api/session";
 import { config, getDeviceIdentifier } from "./config";
 import type { SymmetricKey } from "./crypto/encstring";
+import { buildRevealField } from "./reveal/ui";
 import { AutoLock } from "./vault/autolock";
 import type { VaultItem } from "./vault/model";
 import { unlock } from "./vault/unlock";
@@ -84,7 +86,7 @@ function renderUnlock(error = ""): void {
   email.focus();
 }
 
-function renderList(items: VaultItem[], _userKey: SymmetricKey): void {
+function renderList(items: VaultItem[], userKey: SymmetricKey): void {
   app.replaceChildren();
   ["pointerdown", "keydown"].forEach((evt) =>
     app.addEventListener(evt, () => autoLock.touch(), { passive: true }),
@@ -101,12 +103,14 @@ function renderList(items: VaultItem[], _userKey: SymmetricKey): void {
   const list = el("ul", { className: "items" });
   for (const item of items) {
     const sub = [item.username, item.uriHost].filter(Boolean).join(" · ");
-    list.append(
-      el("li", { className: "item" }, [
-        el("div", { className: "name", textContent: item.name }),
-        el("div", { className: "sub", textContent: sub || "—" }),
-      ]),
-    );
+    const row = el("li", { className: "item" }, [
+      el("div", { className: "name", textContent: item.name }),
+      el("div", { className: "sub", textContent: sub || "—" }),
+    ]);
+    if (item.encryptedPassword) {
+      row.append(buildRevealField(item.encryptedPassword, userKey));
+    }
+    list.append(row);
   }
 
   app.append(
@@ -117,7 +121,7 @@ function renderList(items: VaultItem[], _userKey: SymmetricKey): void {
     el("p", {
       className: "muted",
       textContent:
-        "Reveal & autofill arrive in M2. Passwords are not decrypted on this screen.",
+        "Hold to reveal (biometric confirmation required). Passwords are decrypted only for the duration of the reveal.",
     }),
   );
 }

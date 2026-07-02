@@ -113,6 +113,7 @@ the bot from an allowlisted chat to get the launch button.
 |---|---|---|---|
 | 11.1 | No plaintext in traffic to the server (canary) | `tests/security/no-plaintext.test.ts` | vitest |
 | 11.3 | initData tamper / expiry rejected | `tests/security/test_initdata.py` | pytest |
+| 11.4 | Reveal-lifecycle: DOM/clipboard scrubbed after timeout; no biometry ⇒ no reveal | `tests/security/reveal-lifecycle.test.ts` | vitest (jsdom) |
 | 11.5 | EncString interop with an independent reference | `tests/security/compat.test.ts` | vitest |
 | 11.6 | CSP has no `unsafe-inline`; SRI present | `tests/security/csp-audit.mjs` | node (post-build) |
 
@@ -133,12 +134,16 @@ WebView boundary.
   signups closed, bot skeleton with allowlist.
 - **M1 — unlock + read-only:** ✅ initData verify → Argon2id derivation →
   login + sync → decrypted record list. §11.1 canary passing.
-- **M2 — ephemeral reveal:** _not yet_ (biometry gate, press-and-hold / 20 s,
-  DOM scrub, clipboard auto-clear). Passwords are **not** decrypted on the M1
-  list screen.
+- **M2 — ephemeral reveal:** ✅ biometry gate (`Telegram.WebApp.BiometryManager`
+  with a WebAuthn user-verification fallback, `reveal/biometry.ts`),
+  press-and-hold reveal with a 20 s fallback timer, DOM scrub on release/timeout
+  (`reveal/engine.ts`), clipboard copy with non-destructive auto-clear
+  (`reveal/clipboard.ts`). Auto-lock force-scrubs any in-progress reveal
+  (`vault/autolock.ts`). §11.4 reveal-lifecycle passing.
 - **M3 — create/edit + generator + autofill:** _not yet_. The crypto + API
   paths (`createCipher`, `encryptString`) already exist and are exercised by the
-  canary test.
+  canary test. "Autofill over reveal" (§7.6) applies within M3's own forms — a
+  Mini App has no OS-level autofill hook into other apps.
 - **M4 — notifications + recovery + hardening:** notification formatter
   (`bot/notify.py`) is metadata-only and in place; recovery + optional KDF
   second factor pending.

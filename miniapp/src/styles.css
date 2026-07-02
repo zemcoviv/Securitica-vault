@@ -117,3 +117,43 @@ li.item .sub {
   font-size: 0.8rem;
   padding: 6px 10px;
 }
+
+.reveal-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.reveal-placeholder,
+.reveal-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.03em;
+  user-select: none;
+}
+
+.reveal-value {
+  user-select: text;
+  color: var(--fg);
+}
+
+.reveal-hold,
+.reveal-copy {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  border-radius: 8px;
+  touch-action: none;
+}
+
+.reveal-copy {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.reveal-status {
+  font-size: 0.75rem;
+  min-width: 3em;
+}

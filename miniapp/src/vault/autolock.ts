@@ -5,6 +5,7 @@
  */
 import { wipe } from "../crypto/primitives";
 import type { SymmetricKey } from "../crypto/encstring";
+import { stopAllActiveReveals } from "../reveal/engine";
 
 export class AutoLock {
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -30,6 +31,9 @@ export class AutoLock {
   lock(): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    // Any secret currently on screen must disappear the instant we lock —
+    // the reveal engine tracks in-progress reveals precisely for this call.
+    stopAllActiveReveals();
     if (this.userKey) {
       wipe(this.userKey.encKey, this.userKey.macKey);
       this.userKey = null;
