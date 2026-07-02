@@ -58,6 +58,17 @@ export function buildRevealField(
 
   let activeHandle: RevealHandle | null = null;
   let revealNode: HTMLElement | null = null;
+  // Set when the pointer is released (or the tab is backgrounded) WHILE the
+  // biometric gate/decrypt is still in flight, i.e. before activeHandle
+  // exists to stop(). Without this, that release is silently lost — the
+  // WebAuthn fallback in particular pops a separate OS dialog that requires
+  // letting go of the physical button first, so the pointerup is GUARANTEED
+  // to fire before the gate resolves on that path. Left unhandled, the
+  // secret would then display unconditionally and stay visible indefinitely
+  // (no further pointerup ever arrives to hide it), defeating the BRIEF §7
+  // "visible only while held" invariant. We replay the release the instant
+  // the handle becomes available instead.
+  let releaseRequested = false;
 
   const teardownVisual = () => {
     activeHandle?.stop();
@@ -68,6 +79,7 @@ export function buildRevealField(
 
   async function startHoldReveal(): Promise<void> {
     if (activeHandle?.active) return;
+    releaseRequested = false;
     status.textContent = "Confirm…";
 
     const node = document.createElement("span");
@@ -96,15 +108,28 @@ export function buildRevealField(
     activeHandle = handle;
     if (!handle.active) {
       // Denied — onDenied already handled UI; nothing left in the DOM.
+      releaseRequested = false;
+      return;
+    }
+    if (releaseRequested) {
+      // The button was already released while we awaited the gate/decrypt —
+      // honor it now instead of leaving the secret on screen.
+      releaseRequested = false;
+      handle.stop();
       return;
     }
     status.textContent = mode === HOLD_MODE ? "Release to hide" : "";
   }
 
   function stopHoldReveal(): void {
-    if (revealNode) {
+    if (!revealNode) return;
+    if (activeHandle) {
       // stop() blanks + removes the node; onEnd runs teardownVisual().
-      activeHandle?.stop();
+      activeHandle.stop();
+    } else {
+      // Reveal still in flight (gate/decrypt pending) — remember the
+      // release so startHoldReveal can act on it as soon as it has a handle.
+      releaseRequested = true;
     }
   }
 

@@ -34,6 +34,16 @@ const autoLock = new AutoLock(config.autoLockMs, () => {
   renderUnlock();
 });
 
+// Registered once for the lifetime of the app on the persistent #app element
+// (renderUnlock/renderList/etc. only ever replace #app's CHILDREN via
+// replaceChildren(), never #app itself). Binding this inside renderList()
+// used to re-register a fresh pair of listeners on every call — i.e. on
+// every create/edit/export/password-change round trip — leaking listeners
+// for the rest of the session.
+["pointerdown", "keydown"].forEach((evt) =>
+  app.addEventListener(evt, () => autoLock.touch(), { passive: true }),
+);
+
 /** Session metadata needed later for export / password change. Never a secret. */
 interface Session {
   email: string;
@@ -216,9 +226,6 @@ function renderChangePasswordForm(userKey: SymmetricKey): void {
 
 function renderList(items: VaultItem[], userKey: SymmetricKey): void {
   app.replaceChildren();
-  ["pointerdown", "keydown"].forEach((evt) =>
-    app.addEventListener(evt, () => autoLock.touch(), { passive: true }),
-  );
 
   const addBtn = el("button", { textContent: "+ Add", type: "button" });
   addBtn.addEventListener("click", () => renderCreateForm(userKey));

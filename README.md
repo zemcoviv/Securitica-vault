@@ -130,6 +130,9 @@ the bot from an allowlisted chat to get the launch button.
 | 11.5 | EncString interop with an independent reference | `tests/security/compat.test.ts` | vitest |
 | 11.6 | CSP has no `unsafe-inline`; SRI present | `tests/security/csp-audit.mjs` | node (post-build) |
 | — | Offline export restores with only the master password, no network | `tests/security/export-restore.test.ts` | vitest |
+| — | Press-and-hold release-before-gate-resolves race is handled, not lost | `miniapp/src/reveal/ui.test.ts` | vitest (jsdom) |
+| — | Thin backend honors X-Forwarded-For (per-IP rate limit, correct alert IP) | `tests/security/test_proxy_headers.py` | pytest |
+| — | No listener accumulation across list re-renders | `miniapp/src/main.test.ts` | vitest (jsdom) |
 
 **The §11.1 proof.** The canary test instruments the client with a fetch
 interceptor, runs the full M1 lifecycle plus a cipher create **and** a

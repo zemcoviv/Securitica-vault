@@ -44,6 +44,18 @@
   timeout (20 s fallback), or auto-lock, the node is blanked *and* removed,
   and the decrypted byte buffer is wiped (`reveal/engine.ts`,
   `vault/autolock.ts:stopAllActiveReveals`).
+- **Release-before-gate-resolves is handled, not lost** — `reveal/ui.ts`
+  tracks a release requested while the biometric gate/decrypt is still in
+  flight and honors it the instant a handle exists, instead of leaving the
+  secret visible indefinitely. This matters most for the WebAuthn fallback,
+  whose OS dialog structurally requires letting go of the hold button first
+  (`miniapp/src/reveal/ui.test.ts`).
+- **The thin backend trusts X-Forwarded-For only from its one real caller** —
+  `server/main.py` wraps the app in uvicorn's `ProxyHeadersMiddleware` so
+  `request.client` reflects Caddy's forwarded client IP rather than Caddy's
+  own container address; without it, the per-IP rate limiter collapses into
+  one shared bucket and every account-event alert reports the same wrong IP
+  (`tests/security/test_proxy_headers.py`).
 - **Clipboard auto-clear is non-destructive** — `reveal/clipboard.ts` only
   overwrites the clipboard if it still holds exactly what we put there,
   so it can't clobber something the user copied from elsewhere in the

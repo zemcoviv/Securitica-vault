@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .geoip import lookup_geo
 from .initdata import verify_init_data
@@ -78,6 +79,12 @@ async def healthz() -> dict[str, str]:
 @app.post("/api/session")
 async def session(request: Request) -> JSONResponse:
     """Verify identity from Telegram initData. Returns nothing secret."""
+    # request.client.host is the REAL caller only because of the
+    # ProxyHeadersMiddleware wrap at the bottom of this file: it rewrites
+    # scope["client"] from X-Forwarded-For, which Caddy sets to the true
+    # client IP. Without it, this would always be Caddy's own container IP,
+    # collapsing the per-IP rate limit below into one shared bucket for
+    # every user (and making the IP in account-event alerts meaningless).
     client_ip = request.client.host if request.client else "unknown"
     if _rate_limited(f"session:{client_ip}"):
         return JSONResponse({"ok": False, "error": "rate_limited"}, status_code=429)
@@ -105,6 +112,7 @@ async def report_event(request: Request) -> JSONResponse:
     string. Nothing else is accepted or forwarded; there is no field here a
     cipher or key could travel through.
     """
+    # See the matching comment in session() above re: ProxyHeadersMiddleware.
     client_ip = request.client.host if request.client else "unknown"
     if _rate_limited(f"events:{client_ip}"):
         return JSONResponse({"ok": False, "error": "rate_limited"}, status_code=429)
@@ -147,3 +155,12 @@ async def report_event(request: Request) -> JSONResponse:
 # build output exists (the container mounts the Vite dist here).
 if os.path.isdir(STATIC_DIR):
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="miniapp")
+
+# Trust X-Forwarded-For/X-Forwarded-Proto from whoever connects to this
+# process. Safe to trust unconditionally here because this service publishes
+# no port in docker-compose.yml (networks: [internal, egress] only) — the
+# only thing able to reach it at all is another container on the compose
+# network, and only Caddy actually reverse-proxies real traffic to it. This
+# MUST be the outermost wrap (applied last) so it rewrites request.client
+# before any route or the security_headers middleware above sees it.
+app = ProxyHeadersMiddleware(app, trusted_hosts="*")
