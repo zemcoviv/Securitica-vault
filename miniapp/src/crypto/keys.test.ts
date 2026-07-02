@@ -71,6 +71,26 @@ describe("key derivation (§5 unlock chain)", () => {
     expect(Buffer.from(userKey.macKey).equals(Buffer.from(expected.macKey))).toBe(true);
   });
 
+  it("§5.4 extension point: a second factor changes the derived master key", async () => {
+    const withoutFactor = await deriveMasterKey("u@e.com", "pw", FAST_KDF);
+    const withFactor = await deriveMasterKey(
+      "u@e.com",
+      "pw",
+      FAST_KDF,
+      randomBytes(32),
+    );
+    expect(
+      Buffer.from(withoutFactor.masterKey).equals(Buffer.from(withFactor.masterKey)),
+    ).toBe(false);
+  });
+
+  it("§5.4 extension point: the same second factor is deterministic", async () => {
+    const factor = randomBytes(32);
+    const a = await deriveMasterKey("u@e.com", "pw", FAST_KDF, factor);
+    const b = await deriveMasterKey("u@e.com", "pw", FAST_KDF, factor);
+    expect(Buffer.from(a.masterKey).equals(Buffer.from(b.masterKey))).toBe(true);
+  });
+
   it("exposes Argon2id defaults matching BRIEF §5.1", () => {
     expect(DEFAULT_ARGON2_CONFIG.kdfType).toBe(KdfType.Argon2id);
     expect(DEFAULT_ARGON2_CONFIG.memoryMiB).toBe(256);

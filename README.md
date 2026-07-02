@@ -123,11 +123,13 @@ the bot from an allowlisted chat to get the launch button.
 
 | # | What | Where | Runner |
 |---|---|---|---|
-| 11.1 | No plaintext in traffic to the server (canary) | `tests/security/no-plaintext.test.ts` | vitest |
+| 11.1 | No plaintext in traffic to the server (canary, create + update) | `tests/security/no-plaintext.test.ts` | vitest |
+| — | Account-event alerts carry metadata only, even if a client smuggles extra fields | `tests/security/test_events.py` | pytest |
 | 11.3 | initData tamper / expiry rejected | `tests/security/test_initdata.py` | pytest |
 | 11.4 | Reveal-lifecycle: DOM/clipboard scrubbed after timeout; no biometry ⇒ no reveal | `tests/security/reveal-lifecycle.test.ts` | vitest (jsdom) |
 | 11.5 | EncString interop with an independent reference | `tests/security/compat.test.ts` | vitest |
 | 11.6 | CSP has no `unsafe-inline`; SRI present | `tests/security/csp-audit.mjs` | node (post-build) |
+| — | Offline export restores with only the master password, no network | `tests/security/export-restore.test.ts` | vitest |
 
 **The §11.1 proof.** The canary test instruments the client with a fetch
 interceptor, runs the full M1 lifecycle plus a cipher create **and** a
@@ -162,6 +164,17 @@ base64 auth hash. No plaintext crosses the WebView boundary.
   "autofill over reveal" (§7.6) applied as: a value you are actively creating
   goes straight into your own form field, no separate reveal/clipboard step.
   §11.1 canary extended to cover the update flow.
-- **M4 — notifications + recovery + hardening:** notification formatter
-  (`bot/notify.py`) is metadata-only and in place; recovery + optional KDF
-  second factor pending.
+- **M4 — notifications + recovery + hardening:** ✅ account-event alerts
+  (`server/notifications.py`) sent directly by the thin backend — which
+  already holds `BOT_TOKEN` for initData verification — to Telegram's Bot API
+  on login/export/master-password-change, metadata only (time, IP, optional
+  GeoLite2 geo, device string); `POST /api/events` re-verifies `initData`
+  server-side before sending anything. Master password change (`vault/
+  password-change.ts`) re-wraps only the userKey envelope (§5.3) — no cipher
+  is touched. Encrypted offline export (`vault/export.ts`) repackages
+  ciphertext Vaultwarden already stores (protectedUserKey + raw EncStrings);
+  restoring needs only the master password and the crypto core, no server
+  contact (proven by an automated offline round-trip test). Optional §5.4
+  second-factor-in-KDF extension point wired into `deriveMasterKey` (unused by
+  default, documented, not required for MVP). CSP/SRI audit (§11.6) has been
+  continuously enforced since M2.

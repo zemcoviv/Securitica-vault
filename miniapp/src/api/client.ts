@@ -197,6 +197,34 @@ export class VaultwardenClient {
     return (await res.json()) as SyncResponse;
   }
 
+  /**
+   * Master password change (BRIEF §5.3): only the wrapped `newProtectedUserKey`
+   * envelope is reissued — no cipher is touched, and neither hash is a key
+   * (they're PBKDF2 authenticators the server already can't invert into
+   * encryption keys). Vaultwarden invalidates existing sessions on success, so
+   * callers should force a fresh unlock afterwards.
+   */
+  async changeMasterPassword(params: {
+    oldMasterPasswordHash: string;
+    newMasterPasswordHash: string;
+    newProtectedUserKey: string;
+  }): Promise<void> {
+    if (!this.accessToken) throw new Error("changeMasterPassword: not authenticated");
+    const res = await this.fetchImpl(`${this.baseUrl}/api/accounts/password`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        masterPasswordHash: params.oldMasterPasswordHash,
+        newMasterPasswordHash: params.newMasterPasswordHash,
+        key: params.newProtectedUserKey,
+      }),
+    });
+    if (!res.ok) throw new Error(`changeMasterPassword failed: ${res.status}`);
+  }
+
   /** Forget the access token (called on auto-lock). */
   clearSession(): void {
     this.accessToken = null;

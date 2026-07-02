@@ -56,7 +56,12 @@ services:
     environment:
       BOT_TOKEN: ${BOT_TOKEN:?set BOT_TOKEN in .env}
       INITDATA_TTL_SECONDS: "86400"
-    networks: [internal]
+      # Optional (BRIEF §6.2 "IP/гео из локальной GeoLite2"): mount a
+      # GeoLite2-City.mmdb and set GEOIP_DB_PATH to enable geo in alerts.
+      GEOIP_DB_PATH: ${GEOIP_DB_PATH:-}
+    # egress needed: M4 account-event alerts call the Telegram Bot API
+    # directly (api.telegram.org), same token already used for initData HMAC.
+    networks: [internal, egress]
 
   bot:
     build:

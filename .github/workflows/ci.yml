@@ -20,20 +20,20 @@ jobs:
         run: npm run typecheck
       - name: Build (asserts no inline scripts; SRI-friendly bundle)
         run: npm run build
-      - name: Unit + security tests (§11.1 canary, §11.5 compat)
+      - name: Unit + security tests (§11.1 canary, §11.4 reveal, §11.5 compat, generator, export)
         run: npm test
 
   server:
-    name: Server — initData tamper tests (§11.3)
+    name: Server — initData tamper + account-event tests (§11.3, §6.2)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install pytest
-      - name: initData verification tests
-        run: pytest tests/security/test_initdata.py -q
+      - run: pip install -r server/requirements.txt pytest
+      - name: initData + account-event notification tests
+        run: pytest tests/security/ -q
 
   csp-audit:
     name: CSP / SRI audit (§11.6)

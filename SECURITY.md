@@ -25,8 +25,13 @@
   (`vault/unlock.ts`). Verified continuously by the §11.1 canary test.
 - **initData verified server-side** with HMAC + `auth_date` TTL
   (`server/initdata.py`); the client never trusts its own check for auth.
-- **Bot carries metadata only** (`bot/notify.py`); it has no path to vault
-  contents, keys, or plaintext.
+- **Account-event alerts carry metadata only** — `server/notifications.py`'s
+  `AccountEvent` has exactly five fields (kind, time, ip, geo, device); the
+  thin backend re-verifies `initData` before sending anything and ignores any
+  other field a client request body might contain (verified by
+  `tests/security/test_events.py`, including a canary-smuggling attempt).
+  Neither the bot process nor the notification path has any route to a
+  cipher, key, or master phrase.
 - **Strict CSP + SRI** on the static bundle (`infra/Caddyfile`,
   `scripts/inject-sri.mjs`), audited in CI (§11.6).
 - **No reveal without a fresh biometric confirmation** — `reveal/biometry.ts`
@@ -53,6 +58,22 @@
   (no modulo bias) against the official EFF long wordlist and a matching
   Russian list, snapshotted as static JSON so the bundle never executes
   third-party CommonJS at runtime.
+- **Master password change re-wraps only the envelope** (§5.3) —
+  `vault/password-change.ts` derives fresh master/stretched keys and
+  re-encrypts the *same* userKey under them; no cipher is touched, and a
+  test proves the old stretched key can no longer unwrap the new envelope.
+- **Offline export never decrypts anything** — `vault/export.ts` repackages
+  the `protectedUserKey` envelope and every cipher's EncStrings exactly as
+  Vaultwarden returns them; restoring requires the master password and runs
+  entirely through the local crypto core, with no network call at all
+  (proven by an automated test that restores with no fetch implementation
+  present).
+- **§5.4 extension point, not enabled by default** — `deriveMasterKey` accepts
+  an optional `secondFactor` byte string, mixed into the Argon2id input
+  alongside the master password. Sourcing it (WebAuthn PRF, secure device
+  storage, or a trusted-device QR handoff) is left to a future phase; the
+  derivation hook and its determinism are covered by tests today so wiring a
+  real source later doesn't require touching the crypto core.
 
 ## Honest limitation (BRIEF §7)
 

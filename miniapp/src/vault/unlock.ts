@@ -17,6 +17,7 @@ import {
   computeMasterPasswordHash,
   decryptUserKey,
   deriveMasterKey,
+  type KdfConfig,
 } from "../crypto/keys";
 import { wipe } from "../crypto/primitives";
 import type { SymmetricKey } from "../crypto/encstring";
@@ -25,6 +26,11 @@ import { decryptVault, type VaultItem } from "./model";
 export interface UnlockResult {
   userKey: SymmetricKey;
   items: VaultItem[];
+  /** email + KDF config in effect — needed later for a master password change. */
+  email: string;
+  kdf: KdfConfig;
+  /** The wrapped user-key envelope (ciphertext) — needed later for export (§10 M4). */
+  protectedUserKey: string;
 }
 
 export async function unlock(
@@ -53,7 +59,13 @@ export async function unlock(
     // 6. sync + decrypt list in memory.
     const sync = await client.sync();
     const items = await decryptVault(userKey, sync);
-    return { userKey, items };
+    return {
+      userKey,
+      items,
+      email: email.trim().toLowerCase(),
+      kdf,
+      protectedUserKey,
+    };
   } finally {
     // Master/stretched key are no longer needed once the user key is unwrapped.
     wipe(masterKey, stretchedKey.encKey, stretchedKey.macKey);

@@ -1,7 +1,10 @@
 """Securitica bot — aiogram v3 (BRIEF §6.2).
 
 Role 1 (control plane): a button that launches the Mini App (WebView) and a few
-allowlisted management commands. Role 2 (notifications) lives in notify.py.
+allowlisted management commands. Role 2 (metadata-only account-event alerts,
+BRIEF §6.2/§10 M4) is sent directly by the thin backend
+(server/notifications.py), which already holds BOT_TOKEN for initData
+verification — not by this process — to keep the notification path one hop.
 
 INVARIANTS (BRIEF §2):
   - No secret is ever routed through the Bot API — not in messages, not in

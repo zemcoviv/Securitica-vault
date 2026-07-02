@@ -41,6 +41,14 @@ export function splitSymmetricKey(raw: Uint8Array): SymmetricKey {
   return { encKey: raw.slice(0, 32), macKey: raw.slice(32, 64) };
 }
 
+/** Inverse of splitSymmetricKey — recombine enc||mac into 64 raw bytes. */
+export function joinSymmetricKey(key: SymmetricKey): Uint8Array {
+  const raw = new Uint8Array(64);
+  raw.set(key.encKey, 0);
+  raw.set(key.macKey, 32);
+  return raw;
+}
+
 export interface ParsedEncString {
   type: number;
   iv: Uint8Array;

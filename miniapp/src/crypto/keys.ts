@@ -66,15 +66,33 @@ function toArgon2Params(cfg: KdfConfig): Argon2Params {
   };
 }
 
-/** Steps 2 + 3: derive the master key and stretch it. */
+/**
+ * Steps 2 + 3: derive the master key and stretch it.
+ *
+ * `secondFactor` is the BRIEF §5.4 extension point ("второй фактор в KDF" —
+ * a device-local secret, analogous to 1Password's Secret Key, mixed into
+ * derivation so a bare server dump can never be brute-forced offline). It is
+ * NOT required for the MVP and defaults to absent — when provided, it is
+ * concatenated onto the password bytes before Argon2id, so a dump of
+ * Vaultwarden's DB alone (without the device secret) is insufficient to
+ * attempt master-password guesses. Sourcing it (WebAuthn PRF, secure device
+ * storage, or a QR handoff from a trusted device, per §5.4) is deliberately
+ * left to a future phase; only the derivation hook is wired here.
+ */
 export async function deriveMasterKey(
   email: string,
   masterPassword: string,
   cfg: KdfConfig,
+  secondFactor?: Uint8Array,
 ): Promise<MasterKeyBundle> {
   const normalizedEmail = email.trim().toLowerCase();
+  const passwordBytes = utf8ToBytes(masterPassword);
+  const input = secondFactor
+    ? new Uint8Array([...passwordBytes, 0, ...secondFactor])
+    : passwordBytes;
+
   const masterKey = await deriveArgon2id(
-    utf8ToBytes(masterPassword),
+    input,
     utf8ToBytes(normalizedEmail),
     toArgon2Params(cfg),
   );
