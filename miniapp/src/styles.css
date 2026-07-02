@@ -104,6 +104,26 @@ li.item .sub {
   font-size: 0.85rem;
 }
 
+.item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.edit-btn {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  font-size: 0.75rem;
+  padding: 4px 10px;
+}
+
+.bar-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .bar {
   display: flex;
   justify-content: space-between;
@@ -156,4 +176,73 @@ li.item .sub {
 .reveal-status {
   font-size: 0.75rem;
   min-width: 3em;
+}
+
+.item-form textarea {
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--card);
+  color: var(--fg);
+  font-size: 1rem;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.item-form input.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.generator-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.generator-panel select {
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--card);
+  color: var(--fg);
+}
+
+.generator-panel button {
+  padding: 8px 12px;
+  font-size: 0.85rem;
+}
+
+.inline-check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.entropy {
+  font-size: 0.75rem;
+}
+
+.notes-unlock {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  align-self: flex-start;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.form-actions button[type="button"] {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }

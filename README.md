@@ -8,9 +8,9 @@ on a self-hosted **Vaultwarden** (Bitwarden-compatible) backend.
 > readable by the official Bitwarden apps as a fallback (no single point of
 > failure, no vendor lock-in).
 
-This repository implements **M0** (infrastructure) and **M1** (unlock →
-decrypted record list) of the build brief, plus the automated security tests
-that guard the invariants.
+This repository implements **M0** (infrastructure), **M1** (unlock → decrypted
+record list), **M2** (ephemeral reveal) and **M3** (create/edit + generator) of
+the build brief, plus the automated security tests that guard the invariants.
 
 ---
 
@@ -73,6 +73,18 @@ Record encryption is **EncString type 2** only (`2.<iv>|<ct>|<mac>`).
 XChaCha20/GCM is deliberately rejected for ciphers — it would break Bitwarden
 compatibility (`miniapp/src/crypto/encstring.ts`).
 
+### Generator (§6.3, M3)
+
+`miniapp/src/generator/diceware.ts` implements the diceware method: uniform
+CSPRNG word selection (rejection sampling, no modulo bias) over the **official
+EFF long wordlist** and a matching **Russian wordlist** — both the real
+`diceware-wordlist-en-eff` / `diceware-wordlist-ru` npm packages, snapshotted
+into static JSON (`miniapp/src/generator/wordlists/`, regenerate with
+`npm run build:wordlists`) so the browser bundle never runs third-party
+CommonJS code. Security comes from length (7776 = 6⁵ words, ~12.9 bits/word),
+not character complexity — a locale switch (EN/RU) changes nothing about
+strength since only list size and uniform sampling matter.
+
 ---
 
 ## Running it
@@ -83,7 +95,7 @@ compatibility (`miniapp/src/crypto/encstring.ts`).
 npm install
 npm run typecheck     # strict TS
 npm run build         # Vite build + SRI injection
-npm test              # crypto unit + §11.1 canary + §11.5 compat
+npm test              # crypto unit + generator + §11.1 canary + §11.4 reveal + §11.5 compat
 npm run dev           # local Vite server (outside Telegram, no initData)
 
 pip install pytest
@@ -118,13 +130,13 @@ the bot from an allowlisted chat to get the launch button.
 | 11.6 | CSP has no `unsafe-inline`; SRI present | `tests/security/csp-audit.mjs` | node (post-build) |
 
 **The §11.1 proof.** The canary test instruments the client with a fetch
-interceptor, runs the full M1 lifecycle plus a cipher create whose every field
-carries a unique `CANARY_PLAINTEXT_<rand>` marker, and asserts the marker
-appears in **no** request body, URL, or header — while the EncString that
-*should* carry it is present. Run `npm test` and look for the
-`[§11.1] intercepted outgoing traffic` dump: every payload is either an
-EncString (`2.iv|ct|mac`) or the base64 auth hash. No plaintext crosses the
-WebView boundary.
+interceptor, runs the full M1 lifecycle plus a cipher create **and** a
+subsequent update (M3), each with every field carrying a unique
+`CANARY_PLAINTEXT_<rand>` marker, and asserts the marker appears in **no**
+request body, URL, or header — while the EncString that *should* carry it is
+present. Run `npm test` and look for the `[§11.1] intercepted outgoing
+traffic` dump: every payload is either an EncString (`2.iv|ct|mac`) or the
+base64 auth hash. No plaintext crosses the WebView boundary.
 
 ---
 
@@ -140,10 +152,16 @@ WebView boundary.
   (`reveal/engine.ts`), clipboard copy with non-destructive auto-clear
   (`reveal/clipboard.ts`). Auto-lock force-scrubs any in-progress reveal
   (`vault/autolock.ts`). §11.4 reveal-lifecycle passing.
-- **M3 — create/edit + generator + autofill:** _not yet_. The crypto + API
-  paths (`createCipher`, `encryptString`) already exist and are exercised by the
-  canary test. "Autofill over reveal" (§7.6) applies within M3's own forms — a
-  Mini App has no OS-level autofill hook into other apps.
+- **M3 — create/edit + generator + autofill:** ✅ create/edit forms
+  (`vault/edit-ui.ts`) encrypting every field client-side before
+  `createCipher`/`updateCipher` (`vault/edit.ts`); password and notes use a
+  "blank means unchanged" convention so editing never requires an un-gated
+  decrypt of the existing secret; editing *existing* notes is biometry-gated
+  (they may hold recovery codes). Diceware generator (`generator/diceware.ts`)
+  with the real EFF + RU wordlists feeds the password field directly —
+  "autofill over reveal" (§7.6) applied as: a value you are actively creating
+  goes straight into your own form field, no separate reveal/clipboard step.
+  §11.1 canary extended to cover the update flow.
 - **M4 — notifications + recovery + hardening:** notification formatter
   (`bot/notify.py`) is metadata-only and in place; recovery + optional KDF
   second factor pending.

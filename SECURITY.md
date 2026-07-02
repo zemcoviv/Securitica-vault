@@ -43,6 +43,16 @@
   overwrites the clipboard if it still holds exactly what we put there,
   so it can't clobber something the user copied from elsewhere in the
   interim.
+- **Editing never requires an un-gated decrypt of an existing secret** —
+  `vault/edit.ts` uses "blank field means unchanged": the stored password
+  EncString is reused verbatim unless the user types or generates a new one.
+  Editing *existing* notes (which may hold recovery codes, BRIEF §1) is
+  gated behind the same biometric confirmation as reveal (`vault/edit-ui.ts`).
+- **The generator draws from real diceware wordlists via CSPRNG** —
+  `generator/diceware.ts` uses rejection sampling over `crypto.getRandomValues`
+  (no modulo bias) against the official EFF long wordlist and a matching
+  Russian list, snapshotted as static JSON so the bundle never executes
+  third-party CommonJS at runtime.
 
 ## Honest limitation (BRIEF §7)
 

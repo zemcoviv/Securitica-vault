@@ -16,10 +16,14 @@ export interface VaultItem {
   name: string;
   /** Decrypted username, if present. */
   username: string | null;
-  /** First decrypted URI host, for display. */
+  /** Full decrypted first URI (for edit prefill). Not gated: URLs aren't secrets. */
+  uri: string | null;
+  /** Decrypted URI host, for list display. */
   uriHost: string | null;
-  /** Encrypted password EncString — decrypted only on demand (M2 reveal). */
+  /** Encrypted password EncString — decrypted only on demand (M2 reveal / edit-with-blank-keeps-unchanged). */
   encryptedPassword: string | null;
+  /** Encrypted notes EncString — decrypted only on demand (edit, gated: may hold recovery codes). */
+  encryptedNotes: string | null;
   revisionDate: string;
 }
 
@@ -50,12 +54,15 @@ async function decryptCipher(
   cipher: CipherResponse,
 ): Promise<VaultItem> {
   const firstUri = cipher.login?.uris?.[0]?.uri ?? null;
+  const uri = await safeDecrypt(userKey, firstUri);
   return {
     id: cipher.id,
     name: (await safeDecrypt(userKey, cipher.name)) ?? "(no name)",
     username: await safeDecrypt(userKey, cipher.login?.username),
-    uriHost: hostOf(await safeDecrypt(userKey, firstUri)),
+    uri,
+    uriHost: hostOf(uri),
     encryptedPassword: cipher.login?.password ?? null,
+    encryptedNotes: cipher.notes ?? null,
     revisionDate: cipher.revisionDate,
   };
 }

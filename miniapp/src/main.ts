@@ -1,9 +1,9 @@
 /**
- * Mini App entry — M1 unlock/sync + M2 ephemeral reveal.
+ * Mini App entry — M1 unlock/sync, M2 ephemeral reveal, M3 create/edit.
  *
- * Create/edit + generator (M3) are still out of scope; the list is read-only.
  * Passwords are only ever decrypted for the duration of a gated reveal
- * (reveal/engine.ts) — never eagerly when the list renders.
+ * (reveal/engine.ts) — never eagerly when the list renders, and never just to
+ * prefill an edit form (vault/edit.ts uses a "blank means unchanged" scheme).
  */
 import { VaultwardenClient } from "./api/client";
 import { verifySession } from "./api/session";
@@ -11,7 +11,9 @@ import { config, getDeviceIdentifier } from "./config";
 import type { SymmetricKey } from "./crypto/encstring";
 import { buildRevealField } from "./reveal/ui";
 import { AutoLock } from "./vault/autolock";
-import type { VaultItem } from "./vault/model";
+import { createItem, updateItem } from "./vault/edit";
+import { buildItemForm } from "./vault/edit-ui";
+import { decryptVault, type VaultItem } from "./vault/model";
 import { unlock } from "./vault/unlock";
 import { getInitData, initTelegram } from "./telegram/webapp";
 
@@ -86,25 +88,73 @@ function renderUnlock(error = ""): void {
   email.focus();
 }
 
+async function refreshList(userKey: SymmetricKey): Promise<void> {
+  const sync = await client.sync();
+  const items = await decryptVault(userKey, sync);
+  renderList(items, userKey);
+}
+
+function renderCreateForm(userKey: SymmetricKey): void {
+  app.replaceChildren();
+  const form = buildItemForm({
+    mode: "create",
+    userKey,
+    onCancel: () => void refreshList(userKey),
+    onSubmit: async (values) => {
+      await createItem(client, userKey, values);
+      await refreshList(userKey);
+    },
+  });
+  app.append(el("h1", { textContent: "New item" }), form);
+}
+
+function renderEditForm(item: VaultItem, userKey: SymmetricKey): void {
+  app.replaceChildren();
+  const form = buildItemForm({
+    mode: "edit",
+    userKey,
+    prefill: { name: item.name, username: item.username ?? "", uri: item.uri ?? "" },
+    encryptedNotes: item.encryptedNotes,
+    onCancel: () => void refreshList(userKey),
+    onSubmit: async (values) => {
+      await updateItem(client, userKey, item.id, values, {
+        password: item.encryptedPassword,
+        notes: item.encryptedNotes,
+      });
+      await refreshList(userKey);
+    },
+  });
+  app.append(el("h1", { textContent: "Edit item" }), form);
+}
+
 function renderList(items: VaultItem[], userKey: SymmetricKey): void {
   app.replaceChildren();
   ["pointerdown", "keydown"].forEach((evt) =>
     app.addEventListener(evt, () => autoLock.touch(), { passive: true }),
   );
 
+  const addBtn = el("button", { textContent: "+ Add", type: "button" });
+  addBtn.addEventListener("click", () => renderCreateForm(userKey));
+
   const lockBtn = el("button", { textContent: "Lock", type: "button" });
   lockBtn.addEventListener("click", () => autoLock.lock());
 
   const bar = el("div", { className: "bar" }, [
     el("h1", { textContent: "Vault" }),
-    lockBtn,
+    el("div", { className: "bar-actions" }, [addBtn, lockBtn]),
   ]);
 
   const list = el("ul", { className: "items" });
   for (const item of items) {
     const sub = [item.username, item.uriHost].filter(Boolean).join(" · ");
+    const editBtn = el("button", { textContent: "Edit", type: "button", className: "edit-btn" });
+    editBtn.addEventListener("click", () => renderEditForm(item, userKey));
+
     const row = el("li", { className: "item" }, [
-      el("div", { className: "name", textContent: item.name }),
+      el("div", { className: "item-head" }, [
+        el("div", { className: "name", textContent: item.name }),
+        editBtn,
+      ]),
       el("div", { className: "sub", textContent: sub || "—" }),
     ]);
     if (item.encryptedPassword) {

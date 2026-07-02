@@ -118,37 +118,73 @@ export class VaultwardenClient {
   }
 
   /**
-   * Push a new cipher. The caller supplies ALREADY-ENCRYPTED EncStrings — this
-   * method never sees plaintext (BRIEF §2). Used by the vault create flow (M3)
-   * and exercised by the §11.1 canary test.
+   * Every field here MUST already be an EncString (or null) — the caller
+   * (vault/edit.ts) encrypts with the userKey before this is ever called.
+   * Neither createCipher nor updateCipher sees, logs, or transforms plaintext
+   * (BRIEF §2). Exercised by the §11.1/§11.2 canary tests.
    */
-  async createCipher(encrypted: {
+  private cipherBody(encrypted: {
     name: string;
     username: string | null;
     password: string | null;
     uri: string | null;
-  }): Promise<{ id: string }> {
-    if (!this.accessToken) throw new Error("createCipher: not authenticated");
-    const body = {
+    notes: string | null;
+  }) {
+    return {
       type: 1,
       name: encrypted.name,
+      notes: encrypted.notes,
       login: {
         username: encrypted.username,
         password: encrypted.password,
         uris: encrypted.uri ? [{ uri: encrypted.uri, match: null }] : [],
       },
     };
+  }
+
+  /** Push a new cipher. Used by the vault create flow (M3). */
+  async createCipher(encrypted: {
+    name: string;
+    username: string | null;
+    password: string | null;
+    uri: string | null;
+    notes: string | null;
+  }): Promise<{ id: string }> {
+    if (!this.accessToken) throw new Error("createCipher: not authenticated");
     const res = await this.fetchImpl(`${this.baseUrl}/api/ciphers`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(this.cipherBody(encrypted)),
     });
     if (!res.ok) throw new Error(`createCipher failed: ${res.status}`);
     const data = (await res.json()) as { id: string };
     return { id: data.id };
+  }
+
+  /** Update an existing cipher in place. Used by the vault edit flow (M3). */
+  async updateCipher(
+    id: string,
+    encrypted: {
+      name: string;
+      username: string | null;
+      password: string | null;
+      uri: string | null;
+      notes: string | null;
+    },
+  ): Promise<void> {
+    if (!this.accessToken) throw new Error("updateCipher: not authenticated");
+    const res = await this.fetchImpl(`${this.baseUrl}/api/ciphers/${id}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${this.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(this.cipherBody(encrypted)),
+    });
+    if (!res.ok) throw new Error(`updateCipher failed: ${res.status}`);
   }
 
   async sync(): Promise<SyncResponse> {
