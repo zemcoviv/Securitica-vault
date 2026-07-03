@@ -15,13 +15,15 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-      - run: npm ci || npm install
+      - run: npm ci
       - name: Typecheck
         run: npm run typecheck
       - name: Build (asserts no inline scripts; SRI-friendly bundle)
         run: npm run build
       - name: Unit + security tests (§11.1 canary, §11.4 reveal, §11.5 compat, generator, export)
         run: npm test
+      - name: Dependency vulnerability audit (non-blocking)
+        run: npm audit || true
 
   server:
     name: Server — initData tamper + account-event tests (§11.3, §6.2)
@@ -44,7 +46,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-      - run: npm ci || npm install
+      - run: npm ci
       - run: npm run build
       - name: Assert no unsafe-inline and SRI present
         run: node tests/security/csp-audit.mjs
