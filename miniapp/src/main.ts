@@ -8,7 +8,7 @@
  */
 import { VaultwardenClient } from "./api/client";
 import { reportAccountEvent } from "./api/events";
-import { verifySession } from "./api/session";
+import { completeProvisioning, provisionAccount } from "./api/provision";
 import { config, getDeviceIdentifier } from "./config";
 import type { SymmetricKey } from "./crypto/encstring";
 import type { KdfConfig } from "./crypto/keys";
@@ -19,8 +19,9 @@ import { buildItemForm } from "./vault/edit-ui";
 import { buildExport, downloadExport } from "./vault/export";
 import { decryptVault, type VaultItem } from "./vault/model";
 import { changeMasterPassword } from "./vault/password-change";
-import { unlock } from "./vault/unlock";
-import { getInitData, initTelegram } from "./telegram/webapp";
+import { registerAndUnlock } from "./vault/register";
+import { unlock, type UnlockResult } from "./vault/unlock";
+import { getInitData, getTelegramFirstName, initTelegram } from "./telegram/webapp";
 
 const app = document.getElementById("app")!;
 
@@ -31,7 +32,7 @@ const client = new VaultwardenClient({
 
 const autoLock = new AutoLock(config.autoLockMs, () => {
   session = null;
-  renderUnlock();
+  void renderUnlock();
 });
 
 // Registered once for the lifetime of the app on the persistent #app element
@@ -63,8 +64,83 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-function renderUnlock(error = ""): void {
-  client.clearSession();
+function onUnlocked(initData: string, result: UnlockResult): void {
+  session = {
+    email: result.email,
+    kdf: result.kdf,
+    protectedUserKey: result.protectedUserKey,
+  };
+  autoLock.hold(result.userKey);
+  void reportAccountEvent(config.serverUrl, initData, "login");
+  renderList(result.items, result.userKey);
+}
+
+/**
+ * A resolved, known email — either a returning user's or a brand-new
+ * account's — needing only a password. No email field anywhere: the thin
+ * backend resolved Telegram identity to this address already (BRIEF §1).
+ */
+function renderKnownAccountForm(opts: {
+  email: string;
+  isNewAccount: boolean;
+  initData: string;
+}): void {
+  app.replaceChildren();
+
+  const password = el("input", {
+    type: "password",
+    autocomplete: opts.isNewAccount ? "new-password" : "current-password",
+    required: true,
+  });
+  const errorBox = el("div", { className: "error" });
+  const submit = el("button", {
+    type: "submit",
+    textContent: opts.isNewAccount ? "Create vault" : "Unlock vault",
+  });
+
+  const form = el("form", {}, [
+    el("label", {}, [opts.isNewAccount ? "Choose a master password" : "Master password", password]),
+    submit,
+    errorBox,
+  ]);
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    submit.disabled = true;
+    errorBox.textContent = opts.isNewAccount ? "Creating your vault…" : "Deriving keys…";
+    try {
+      const result = opts.isNewAccount
+        ? await registerAndUnlock(client, opts.email, password.value, getTelegramFirstName())
+        : await unlock(client, opts.email, password.value);
+      password.value = "";
+      if (opts.isNewAccount) {
+        void completeProvisioning(config.serverUrl, opts.initData);
+      }
+      onUnlocked(opts.initData, result);
+    } catch (err) {
+      errorBox.textContent = (err as Error).message;
+      submit.disabled = false;
+    }
+  });
+
+  app.append(
+    el("h1", {
+      textContent: opts.isNewAccount ? "Welcome — set up your vault" : "Securitica Vault",
+    }),
+    el("p", {
+      className: "muted",
+      textContent: opts.isNewAccount
+        ? "This master password is the only key to your data. We never see it, and if it's lost nobody can recover it for you — export a backup once you're in."
+        : "Zero-knowledge. Keys are derived on this device; the server only stores ciphertext.",
+    }),
+    form,
+  );
+  password.focus();
+}
+
+/** No thin backend configured (local dev without server/) — fall back to a
+ * manual email+password form against whatever Vaultwarden account exists. */
+function renderManualLoginForm(error = ""): void {
   app.replaceChildren();
 
   const email = el("input", { type: "email", autocomplete: "username", required: true });
@@ -88,21 +164,11 @@ function renderUnlock(error = ""): void {
     submit.disabled = true;
     errorBox.textContent = "Deriving keys…";
     try {
-      const initData = getInitData();
-      // Identity check first (server-verified initData).
-      if (config.serverUrl !== "") {
-        const result = await verifySession(config.serverUrl, initData);
-        if (!result.ok) throw new Error(`identity rejected (${result.error})`);
-      }
-      const { userKey, items, email: normalizedEmail, kdf, protectedUserKey } =
-        await unlock(client, email.value, password.value);
+      const result = await unlock(client, email.value, password.value);
       password.value = "";
-      session = { email: normalizedEmail, kdf, protectedUserKey };
-      autoLock.hold(userKey);
-      void reportAccountEvent(config.serverUrl, initData, "login");
-      renderList(items, userKey);
+      onUnlocked(getInitData(), result);
     } catch (err) {
-      renderUnlock((err as Error).message);
+      renderManualLoginForm((err as Error).message);
     }
   });
 
@@ -116,6 +182,31 @@ function renderUnlock(error = ""): void {
     form,
   );
   email.focus();
+}
+
+async function renderUnlock(): Promise<void> {
+  client.clearSession();
+  session = null;
+
+  if (config.serverUrl === "") {
+    renderManualLoginForm();
+    return;
+  }
+
+  app.replaceChildren();
+  app.append(el("p", { className: "muted", textContent: "Loading…" }));
+
+  const initData = getInitData();
+  const result = await provisionAccount(config.serverUrl, initData);
+  if (!result.ok || !result.email) {
+    renderManualLoginForm(`identity rejected (${result.error ?? "unknown"})`);
+    return;
+  }
+  renderKnownAccountForm({
+    email: result.email,
+    isNewAccount: result.status === "new",
+    initData,
+  });
 }
 
 async function refreshList(userKey: SymmetricKey): Promise<void> {
@@ -277,4 +368,4 @@ function renderList(items: VaultItem[], userKey: SymmetricKey): void {
 }
 
 initTelegram();
-renderUnlock();
+void renderUnlock();

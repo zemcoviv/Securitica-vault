@@ -105,13 +105,18 @@ pytest tests/security/test_initdata.py   # §11.3 initData tamper
 ### Full stack — Docker Compose (M0)
 
 ```bash
-cp .env.example .env          # fill DB_PASSWORD, BOT_TOKEN, ALLOWLIST_CHAT_IDS
+cp .env.example .env          # fill DB_PASSWORD, BOT_TOKEN, VW_ADMIN_TOKEN, ALLOWLIST_CHAT_IDS
 docker compose up -d --build
 ```
 
-Then: register a user via Vaultwarden invite (signups are closed), confirm you
-can log in from an **official Bitwarden client** against `/vault`, and `/start`
-the bot from an allowlisted chat to get the launch button.
+Then: `/start` the bot from an allowlisted chat and tap **Open Vault** (or the
+Menu button). First open shows **just one field — "Choose a master
+password"** (BRIEF §1: the Mini App creates the Vaultwarden account itself,
+directly from Telegram identity — no email, no Vaultwarden UI, no KDF
+choice). The account remains reachable from an **official Bitwarden client**
+too (ADR-001) if you ever need it — its email is the synthetic
+`tg<telegram_id>@securitica.local` (see `server/provisioning.py`), its master
+password is whatever you set on first open.
 
 > Set your real domain in `infra/Caddyfile`, `infra/vaultwarden.env`
 > (`DOMAIN`), and `MINIAPP_URL`. Keep `connect-src` in the CSP aligned with
@@ -126,13 +131,15 @@ the bot from an allowlisted chat to get the launch button.
   the persistent Menu button (☰ next to the message box) via
   `set_my_commands`/`set_chat_menu_button` — restart the bot container after
   changing `MINIAPP_URL` for the Menu button to pick up the new URL.
-- **Unlock fails with "Securitica requires Argon2id".** Vaultwarden/Bitwarden
-  accounts default to **PBKDF2-SHA256** unless you explicitly pick Argon2id
-  at signup — and this client only supports Argon2id vaults (BRIEF §5.1).
-  Fix it in the account, not the code: official web vault or Bitwarden
-  app → **Settings → Security → Keys → KDF algorithm → Argon2id** → enter
-  your master password to confirm. This re-wraps the same `userKey` under a
-  new envelope (§5.3) — no data is lost.
+- **First open hangs on "Loading…" or fails to provision.** `VW_ADMIN_TOKEN`
+  must be set in `.env` (it's required now, not optional) — miniapp-server
+  uses it to invite new Telegram users into Vaultwarden server-to-server
+  (`server/vaultwarden_admin.py`). Check the `miniapp-server` container logs
+  for `provision_failed`/`server_misconfigured`.
+- **"Securitica requires Argon2id"** only applies to the manual-login
+  fallback (no `VITE_SERVER_URL` configured, e.g. local `npm run dev` against
+  a pre-existing Vaultwarden account). Auto-provisioned accounts always use
+  Argon2id (BRIEF §5.1) — there is no user-visible KDF choice in that path.
 
 ---
 
@@ -150,6 +157,9 @@ the bot from an allowlisted chat to get the launch button.
 | — | Press-and-hold release-before-gate-resolves race is handled, not lost | `miniapp/src/reveal/ui.test.ts` | vitest (jsdom) |
 | — | Thin backend honors X-Forwarded-For (per-IP rate limit, correct alert IP) | `tests/security/test_proxy_headers.py` | pytest |
 | — | No listener accumulation across list re-renders | `miniapp/src/main.test.ts` | vitest (jsdom) |
+| — | Registration sends only ciphertext/public key, never the master password | `miniapp/src/vault/register.test.ts` | vitest |
+| — | `/api/provision` idempotency, initData gating, admin-invite mocking | `tests/security/test_provisioning.py`, `tests/security/test_vaultwarden_admin.py` | pytest |
+| — | End-to-end onboarding wiring: new + returning user, no email field ever shown | `miniapp/src/main-onboarding.test.ts` | vitest (jsdom) |
 
 **The §11.1 proof.** The canary test instruments the client with a fetch
 interceptor, runs the full M1 lifecycle plus a cipher create **and** a
@@ -168,6 +178,15 @@ base64 auth hash. No plaintext crosses the WebView boundary.
   signups closed, bot skeleton with allowlist.
 - **M1 — unlock + read-only:** ✅ initData verify → Argon2id derivation →
   login + sync → decrypted record list. §11.1 canary passing.
+- **Account auto-provisioning (BRIEF §1, beyond the original phase plan):** ✅
+  first open resolves Telegram identity to a synthetic email
+  (`server/provisioning.py`) and shows a *single* "choose/enter a master
+  password" field — no email, no KDF setting, no Vaultwarden UI. New users
+  are invited server-to-server via Vaultwarden's admin API
+  (`server/vaultwarden_admin.py`, `SIGNUPS_ALLOWED` stays `false`) and
+  registered client-side (`vault/register.ts`, RSA keypair + fixed Argon2id
+  config, `POST /api/accounts/register`). See SECURITY.md for the new
+  privileged-secret trade-off this introduces.
 - **M2 — ephemeral reveal:** ✅ biometry gate (`Telegram.WebApp.BiometryManager`
   with a WebAuthn user-verification fallback, `reveal/biometry.ts`),
   press-and-hold reveal with a 20 s fallback timer, DOM scrub on release/timeout

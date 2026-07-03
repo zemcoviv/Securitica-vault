@@ -27,6 +27,14 @@ interface PreloginResponse {
   kdfParallelism?: number;
 }
 
+/**
+ * Thrown by register() when Vaultwarden reports the account already exists
+ * (e.g. a previous registration attempt completed but our own
+ * provision-complete bookkeeping never got the news). Callers should treat
+ * this as "try logging in with what the user just typed instead."
+ */
+export class RegisterConflictError extends Error {}
+
 interface TokenResponse {
   access_token: string;
   expires_in: number;
@@ -84,6 +92,54 @@ export class VaultwardenClient {
       memoryMiB: data.kdfMemory,
       parallelism: data.kdfParallelism,
     };
+  }
+
+  /**
+   * Create a brand-new account (BRIEF §1 onboarding: the Mini App drives this
+   * directly, no Vaultwarden/Bitwarden UI). Confirmed against Vaultwarden
+   * 1.32.7 source: this handler lives in src/api/core/accounts.rs, mounted
+   * under /api (NOT /identity) — unlike prelogin/connect-token, which are
+   * genuinely under /identity.
+   *
+   * Every field here is either ciphertext (`key`, `keys.encryptedPrivateKey`),
+   * a public key, or an authenticator hash — never a plaintext secret
+   * (BRIEF §2). The server only allows this to succeed for an email with a
+   * pending Invitation record (SIGNUPS_ALLOWED stays false; see
+   * server/vaultwarden_admin.py for how that invitation is created).
+   */
+  async register(params: {
+    email: string;
+    masterPasswordHash: string;
+    /** Protected user key envelope (EncString) — ciphertext. */
+    key: string;
+    kdf: KdfConfig;
+    keys: { publicKeyB64: string; encryptedPrivateKey: string };
+    name?: string;
+  }): Promise<void> {
+    const res = await this.fetchImpl(`${this.baseUrl}/api/accounts/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: params.email.trim().toLowerCase(),
+        masterPasswordHash: params.masterPasswordHash,
+        key: params.key,
+        kdf: params.kdf.kdfType,
+        kdfIterations: params.kdf.iterations,
+        kdfMemory: params.kdf.memoryMiB,
+        kdfParallelism: params.kdf.parallelism,
+        keys: {
+          publicKey: params.keys.publicKeyB64,
+          encryptedPrivateKey: params.keys.encryptedPrivateKey,
+        },
+        name: params.name ?? null,
+      }),
+    });
+    if (res.ok) return;
+    const bodyText = await res.text().catch(() => "");
+    if (res.status === 400 && /already exists|not allowed/i.test(bodyText)) {
+      throw new RegisterConflictError(bodyText || "account already exists");
+    }
+    throw new Error(`register failed: ${res.status}`);
   }
 
   /**

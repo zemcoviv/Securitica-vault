@@ -26,15 +26,15 @@ jobs:
         run: npm audit || true
 
   server:
-    name: Server — initData tamper + account-event tests (§11.3, §6.2)
+    name: Server — initData/provisioning/account-event tests (§11.3, §6.2, §1)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r server/requirements.txt pytest
-      - name: initData + account-event notification tests
+      - run: pip install -r server/requirements.txt pytest pytest-asyncio
+      - name: initData + provisioning + account-event notification tests
         run: pytest tests/security/ -q
 
   bot:

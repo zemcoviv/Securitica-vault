@@ -5,12 +5,18 @@
 # Services:
 #   db              PostgreSQL for Vaultwarden
 #   vaultwarden     Bitwarden-compatible backend (signups closed)
-#   miniapp-server  thin backend: Mini App static + initData verification
+#   miniapp-server  thin backend: Mini App static, initData verification,
+#                   account auto-provisioning (BRIEF §1)
 #   bot             aiogram launcher + notifications (allowlist)
 #   caddy           TLS edge + authoritative CSP/HSTS
 #
 # Secrets (BOT_TOKEN, DB password, ADMIN_TOKEN) come from a .env file that is
 # NOT committed. See .env.example.
+#
+# VW_ADMIN_TOKEN is now REQUIRED (not optional): miniapp-server uses it to
+# programmatically invite new Telegram users into Vaultwarden (BRIEF §1 — the
+# Mini App creates the account directly, no admin panel, no email field, no
+# KDF choice). See server/vaultwarden_admin.py.
 
 services:
   db:
@@ -36,7 +42,7 @@ services:
       - infra/vaultwarden.env
     environment:
       DATABASE_URL: postgresql://vaultwarden:${DB_PASSWORD}@db:5432/vaultwarden
-      ADMIN_TOKEN: ${VW_ADMIN_TOKEN:-}
+      ADMIN_TOKEN: ${VW_ADMIN_TOKEN:?set VW_ADMIN_TOKEN in .env — required for account auto-provisioning}
     volumes:
       - vw-data:/data
     depends_on:
@@ -59,6 +65,16 @@ services:
       # Optional (BRIEF §6.2 "IP/гео из локальной GeoLite2"): mount a
       # GeoLite2-City.mmdb and set GEOIP_DB_PATH to enable geo in alerts.
       GEOIP_DB_PATH: ${GEOIP_DB_PATH:-}
+      # Account auto-provisioning (BRIEF §1): reaches Vaultwarden's admin API
+      # directly over the internal network (never through Caddy) to invite
+      # new Telegram users. This is a NEW privileged secret held by this
+      # service — it has no access to vault contents (Vaultwarden's admin
+      # panel never decrypts user data), but it can create/manage accounts.
+      VAULTWARDEN_INTERNAL_URL: "http://vaultwarden:80"
+      VAULTWARDEN_ADMIN_TOKEN: ${VW_ADMIN_TOKEN:?set VW_ADMIN_TOKEN in .env — required for account auto-provisioning}
+      PROVISIONING_DB_PATH: /data/provisioning.sqlite3
+    volumes:
+      - provisioning-data:/data
     # egress needed: M4 account-event alerts call the Telegram Bot API
     # directly (api.telegram.org), same token already used for initData HMAC.
     networks: [internal, egress]
@@ -93,6 +109,7 @@ volumes:
   vw-data:
   caddy-data:
   caddy-config:
+  provisioning-data:
 
 networks:
   # internal has no direct internet route; egress is for services that must

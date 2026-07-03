@@ -10,7 +10,9 @@
 
 interface TelegramWebApp {
   initData: string;
-  initDataUnsafe: { user?: { id: number; username?: string } };
+  initDataUnsafe: {
+    user?: { id: number; username?: string; first_name?: string };
+  };
   colorScheme: "light" | "dark";
   themeParams: Record<string, string>;
   ready(): void;
@@ -39,6 +41,16 @@ export function getWebApp(): TelegramWebApp | null {
 /** Raw initData query string, to be POSTed to our server for verification. */
 export function getInitData(): string {
   return getWebApp()?.initData ?? "";
+}
+
+/**
+ * `initDataUnsafe.user.first_name` is client-supplied and NOT server-verified
+ * (that's exactly what "unsafe" means here) — it is display metadata only,
+ * used as a friendly default account name at registration. Never treat this
+ * as an authenticated identity; that's what verified `initData` is for.
+ */
+export function getTelegramFirstName(): string | undefined {
+  return getWebApp()?.initDataUnsafe.user?.first_name;
 }
 
 export function applyTheme(): void {

@@ -12,6 +12,10 @@
 | Record names / URLs | Encrypted client-side as EncStrings (sensitive fields MUST be encrypted) |
 | Sync metadata (id, revisionDate) | Yes |
 | initData / Telegram identity | Yes |
+| Synthetic account email (`tg<id>@securitica.local`) | Yes — derived from Telegram id, not a secret |
+| Account RSA keypair — public key | Yes — public by definition |
+| Account RSA keypair — private key | Yes — ciphertext only (EncString under userKey) |
+| `VW_ADMIN_TOKEN` (Vaultwarden admin) | Held by `miniapp-server` only — new in BRIEF §1 onboarding; see below |
 
 ## Invariants enforced in code
 
@@ -86,6 +90,37 @@
   storage, or a trusted-device QR handoff) is left to a future phase; the
   derivation hook and its determinism are covered by tests today so wiring a
   real source later doesn't require touching the crypto core.
+- **Account provisioning never routes a secret through the invite step** —
+  `server/vaultwarden_admin.py` only ever sends an email address to
+  Vaultwarden's admin API; `/api/provision` accepts nothing but `initData`,
+  so a client cannot smuggle any other value into the invite call
+  (`tests/security/test_provisioning.py`). Registration itself
+  (`vault/register.ts`) follows the exact same ciphertext-only discipline as
+  every other write — proven by an extension of the same canary pattern
+  (`miniapp/src/vault/register.test.ts`).
+
+## New privileged secret: `VW_ADMIN_TOKEN` in `miniapp-server` (BRIEF §1)
+
+Account auto-provisioning (BRIEF §1 — the Mini App creates the Vaultwarden
+account directly, no admin panel, no email field, no KDF choice) requires
+`miniapp-server` to hold Vaultwarden's admin token and call its admin API
+server-to-server. This is a **new trade-off**, not present before this
+feature: previously the thin backend held no privileged secret at all.
+
+- **What it can do:** create/invite Vaultwarden user accounts.
+- **What it still cannot do:** decrypt a single cipher, key, or master
+  phrase — Vaultwarden's admin panel has no path to plaintext vault
+  contents, by the same zero-knowledge design that protects everything
+  else in this document.
+- **Blast radius if `miniapp-server` is compromised:** an attacker could
+  invite/create accounts, but not read anyone's passwords. This is
+  meaningfully worse than the pre-onboarding-feature posture (a compromised
+  thin backend used to be able to do nothing privileged at all), and is the
+  explicit, disclosed cost of removing Bitwarden-level UX friction for a
+  general Telegram audience.
+- The admin token travels **only** over the internal docker network
+  (`VAULTWARDEN_INTERNAL_URL`, never through Caddy) and never appears in any
+  request to or from the Mini App client.
 
 ## Honest limitation (BRIEF §7)
 
@@ -105,7 +140,9 @@ native memory isolation. We mitigate by:
 
 ## Secrets handling
 
-`BOT_TOKEN`, the DB password, the Vaultwarden admin token, and TLS keys are
-provided via environment / secrets (`.env`, `infra/vaultwarden.env.local`) and
-are **never** committed. `.gitignore` blocks the obvious paths; rotate any
-value that lands in history.
+`BOT_TOKEN`, the DB password, `VW_ADMIN_TOKEN`, and TLS keys are provided via
+environment / secrets (`.env`, `infra/vaultwarden.env.local`) and are **never**
+committed. `.gitignore` blocks the obvious paths; rotate any value that lands
+in history. `VW_ADMIN_TOKEN` is shared between the `vaultwarden` and
+`miniapp-server` services (docker-compose.yml) — rotating it requires
+restarting both.

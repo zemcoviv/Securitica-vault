@@ -23,12 +23,18 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from .geoip import lookup_geo
 from .initdata import verify_init_data
 from .notifications import VALID_EVENT_KINDS, AccountEvent, send_account_event
+from .provisioning import is_provisioned, mark_provisioned, synthetic_email
+from .vaultwarden_admin import VaultwardenAdminError, invite_user
 
 logger = logging.getLogger("securitica.server")
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 STATIC_DIR = os.environ.get("MINIAPP_DIST", "/srv/miniapp")
 INITDATA_TTL = int(os.environ.get("INITDATA_TTL_SECONDS", "86400"))
+# Reaches Vaultwarden directly over the internal docker network — never
+# through Caddy — since this is a server-to-server admin call, not client sync.
+VAULTWARDEN_INTERNAL_URL = os.environ.get("VAULTWARDEN_INTERNAL_URL", "http://vaultwarden:80")
+VAULTWARDEN_ADMIN_TOKEN = os.environ.get("VAULTWARDEN_ADMIN_TOKEN", "")
 # Cap on the client-supplied device string — never trust arbitrary length/content
 # beyond "short label", and it is never logged or forwarded anywhere but Telegram.
 _MAX_DEVICE_LEN = 120
@@ -74,33 +80,6 @@ async def security_headers(request: Request, call_next):
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
-
-
-@app.post("/api/session")
-async def session(request: Request) -> JSONResponse:
-    """Verify identity from Telegram initData. Returns nothing secret."""
-    # request.client.host is the REAL caller only because of the
-    # ProxyHeadersMiddleware wrap at the bottom of this file: it rewrites
-    # scope["client"] from X-Forwarded-For, which Caddy sets to the true
-    # client IP. Without it, this would always be Caddy's own container IP,
-    # collapsing the per-IP rate limit below into one shared bucket for
-    # every user (and making the IP in account-event alerts meaningless).
-    client_ip = request.client.host if request.client else "unknown"
-    if _rate_limited(f"session:{client_ip}"):
-        return JSONResponse({"ok": False, "error": "rate_limited"}, status_code=429)
-
-    try:
-        payload = await request.json()
-    except Exception:
-        return JSONResponse({"ok": False, "error": "bad_request"}, status_code=400)
-
-    init_data = payload.get("initData", "")
-    result = verify_init_data(init_data, BOT_TOKEN, max_age_seconds=INITDATA_TTL)
-    if not result.ok:
-        return JSONResponse(
-            {"ok": False, "error": result.reason}, status_code=401
-        )
-    return JSONResponse({"ok": True, "userId": result.user_id})
 
 
 @app.post("/api/events")
@@ -149,6 +128,70 @@ async def report_event(request: Request) -> JSONResponse:
         logger.warning("failed to deliver account-event notification", exc_info=True)
         return JSONResponse({"ok": True, "notified": False})
     return JSONResponse({"ok": True, "notified": True})
+
+
+@app.post("/api/provision")
+async def provision(request: Request) -> JSONResponse:
+    """
+    Resolve a Telegram identity to a Vaultwarden account (BRIEF §1: the user
+    never sees Vaultwarden, an email field, or a KDF setting). Invites a new
+    account if one doesn't exist yet for this Telegram user, so the client
+    can register() straight away — SIGNUPS_ALLOWED stays false; this uses
+    the admin-invite mechanism, gated by initData-verified Telegram identity,
+    never open self-registration from the raw internet.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    if _rate_limited(f"provision:{client_ip}"):
+        return JSONResponse({"ok": False, "error": "rate_limited"}, status_code=429)
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad_request"}, status_code=400)
+
+    init_data = payload.get("initData", "")
+    result = verify_init_data(init_data, BOT_TOKEN, max_age_seconds=INITDATA_TTL)
+    if not result.ok or result.user_id is None:
+        return JSONResponse({"ok": False, "error": result.reason}, status_code=401)
+
+    email = synthetic_email(result.user_id)
+    if is_provisioned(result.user_id):
+        return JSONResponse({"ok": True, "email": email, "status": "existing"})
+
+    if not VAULTWARDEN_ADMIN_TOKEN:
+        logger.error("VAULTWARDEN_ADMIN_TOKEN is not set — cannot provision new accounts")
+        return JSONResponse({"ok": False, "error": "server_misconfigured"}, status_code=500)
+
+    try:
+        await invite_user(VAULTWARDEN_INTERNAL_URL, VAULTWARDEN_ADMIN_TOKEN, email)
+    except VaultwardenAdminError:
+        logger.exception("failed to provision vaultwarden invite for %s", email)
+        return JSONResponse({"ok": False, "error": "provision_failed"}, status_code=502)
+
+    return JSONResponse({"ok": True, "email": email, "status": "new"})
+
+
+@app.post("/api/provision/complete")
+async def provision_complete(request: Request) -> JSONResponse:
+    """
+    Called by the client right after a successful registration against
+    Vaultwarden, so future /api/provision calls report "existing" instead of
+    inviting again. Purely a UX-routing signal (BRIEF: which first-run screen
+    to show) — never a security gate; getting this wrong just shows the
+    wrong screen once, it can't grant or withhold vault access.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad_request"}, status_code=400)
+
+    init_data = payload.get("initData", "")
+    result = verify_init_data(init_data, BOT_TOKEN, max_age_seconds=INITDATA_TTL)
+    if not result.ok or result.user_id is None:
+        return JSONResponse({"ok": False, "error": result.reason}, status_code=401)
+
+    mark_provisioned(result.user_id)
+    return JSONResponse({"ok": True})
 
 
 # Static Mini App bundle, mounted last so /api routes win. Only enabled when the
