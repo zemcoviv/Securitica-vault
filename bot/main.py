@@ -22,8 +22,10 @@ import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import (
+    BotCommand,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    MenuButtonWebApp,
     Message,
     WebAppInfo,
 )
@@ -84,10 +86,31 @@ async def fallback(message: Message) -> None:
     await message.answer("Use /start to open the vault.", reply_markup=_launch_keyboard())
 
 
+async def _configure_bot_ui(bot: Bot) -> None:
+    """Set up the "/" command list and the persistent Menu button (☰ next to
+    the message box). Neither call carries a secret — MENU_BUTTON just points
+    at the public Mini App URL, same as the inline "Open vault" button; actual
+    access is still gated by Vaultwarden login + master password once opened.
+    """
+    await bot.set_my_commands(
+        [
+            BotCommand(command="start", description="Open the vault"),
+            BotCommand(command="status", description="Bot status"),
+        ]
+    )
+    await bot.set_chat_menu_button(
+        menu_button=MenuButtonWebApp(
+            text="Open Vault",
+            web_app=WebAppInfo(url=MINIAPP_URL),
+        )
+    )
+
+
 async def main() -> None:
     if not os.environ.get("ALLOWLIST_CHAT_IDS"):
         logger.warning("ALLOWLIST_CHAT_IDS is empty — bot will reject everyone.")
     bot = Bot(token=BOT_TOKEN)
+    await _configure_bot_ui(bot)
     logger.info("Securitica bot starting (allowlist enforced).")
     await dp.start_polling(bot)
 

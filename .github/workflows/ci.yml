@@ -37,6 +37,18 @@ jobs:
       - name: initData + account-event notification tests
         run: pytest tests/security/ -q
 
+  bot:
+    name: Bot — menu/command setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r bot/requirements.txt pytest pytest-asyncio
+      - name: Bot UI configuration tests
+        run: pytest tests/bot/ -q
+
   csp-audit:
     name: CSP / SRI audit (§11.6)
     runs-on: ubuntu-latest

@@ -117,6 +117,23 @@ the bot from an allowlisted chat to get the launch button.
 > (`DOMAIN`), and `MINIAPP_URL`. Keep `connect-src` in the CSP aligned with
 > where the client talks (default: same-origin `/vault`).
 
+**Common first-run gotchas:**
+
+- **Bot shows no menu / "Access denied" on `/start`.** `ALLOWLIST_CHAT_IDS` in
+  `.env` must contain *your actual Telegram numeric user id* (get it from
+  e.g. @userinfobot), not left blank — an empty allowlist rejects everyone
+  (BRIEF §6.2). On startup the bot also registers the "/" command list and
+  the persistent Menu button (☰ next to the message box) via
+  `set_my_commands`/`set_chat_menu_button` — restart the bot container after
+  changing `MINIAPP_URL` for the Menu button to pick up the new URL.
+- **Unlock fails with "Securitica requires Argon2id".** Vaultwarden/Bitwarden
+  accounts default to **PBKDF2-SHA256** unless you explicitly pick Argon2id
+  at signup — and this client only supports Argon2id vaults (BRIEF §5.1).
+  Fix it in the account, not the code: official web vault or Bitwarden
+  app → **Settings → Security → Keys → KDF algorithm → Argon2id** → enter
+  your master password to confirm. This re-wraps the same `userKey` under a
+  new envelope (§5.3) — no data is lost.
+
 ---
 
 ## Security tests (BRIEF §11)
