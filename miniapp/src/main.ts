@@ -188,7 +188,7 @@ async function renderUnlock(): Promise<void> {
   client.clearSession();
   session = null;
 
-  if (config.serverUrl === "") {
+  if (!config.hasThinBackend) {
     renderManualLoginForm();
     return;
   }

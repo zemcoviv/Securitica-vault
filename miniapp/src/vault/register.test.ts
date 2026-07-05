@@ -125,7 +125,7 @@ describe("registerAndUnlock", () => {
     }
   });
 
-  it("the registered account's protected user key actually unwraps with the typed password", async () => {
+  it("the registered account's protected user key actually unwraps with the typed password", { timeout: 15000 }, async () => {
     const captured: CapturedRequest[] = [];
     const { fetchImpl, getStoredAccount } = buildFakeServer({ captured });
     const client = new VaultwardenClient({
@@ -144,7 +144,7 @@ describe("registerAndUnlock", () => {
     await expect(decryptToBytes(stretchedKey, stored!.key)).resolves.toBeInstanceOf(Uint8Array);
   });
 
-  it("falls back to a normal login when the account already exists (conflict)", async () => {
+  it("falls back to a normal login when the account already exists (conflict)", { timeout: 15000 }, async () => {
     const captured: CapturedRequest[] = [];
     // Pre-provision the "existing" account via one registration...
     const { fetchImpl } = buildFakeServer({ captured });

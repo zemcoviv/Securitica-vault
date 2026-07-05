@@ -212,4 +212,86 @@ describe("onboarding wiring in main.ts (thin backend configured)", () => {
       timeout: 5000,
     });
   });
+
+  it("REGRESSION: the real docker-compose build config (DEV=false, VITE_SERVER_URL=\"\") auto-provisions instead of asking for an email", { timeout: 15000 }, async () => {
+    // server/Dockerfile always builds with VITE_SERVER_URL="" — same-origin,
+    // relative paths, exactly what Caddy serves. main.ts used to read that
+    // empty string as "no thin backend" and show the old manual
+    // email+password form in EVERY real deployment. Reproduce the exact
+    // production build inputs here so this can't silently come back.
+    vi.stubEnv("DEV", false);
+    vi.stubEnv("VITE_SERVER_URL", "");
+    vi.stubEnv("VITE_VAULTWARDEN_URL", "/vault");
+
+    document.body.innerHTML = '<main id="app"></main>';
+    (window as unknown as { Telegram: unknown }).Telegram = {
+      WebApp: {
+        initData: `user=%7B%22id%22%3A${TELEGRAM_USER_ID}%2C%22first_name%22%3A%22Ada%22%7D&auth_date=1`,
+        initDataUnsafe: { user: { id: TELEGRAM_USER_ID, first_name: "Ada" } },
+        colorScheme: "dark",
+        themeParams: {},
+        ready: () => {},
+        expand: () => {},
+      },
+    };
+
+    let stored: { mpHash: string; key: string } | null = null;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      // Relative paths, exactly as a real same-origin browser fetch would send.
+      const url = typeof input === "string" ? input : input.toString();
+      const body = typeof init?.body === "string" ? init.body : "";
+
+      if (url === "/api/provision") return json({ ok: true, email: SYNTHETIC_EMAIL, status: "new" });
+      if (url === "/api/provision/complete") return json({ ok: true });
+      if (url === "/api/events") return json({ ok: true, notified: true });
+      if (url === "/vault/api/accounts/register") {
+        const parsed = JSON.parse(body);
+        stored = { mpHash: parsed.masterPasswordHash, key: parsed.key };
+        return json({});
+      }
+      if (url === "/vault/identity/accounts/prelogin") {
+        return json({
+          kdf: DEFAULT_ARGON2_CONFIG.kdfType,
+          kdfIterations: DEFAULT_ARGON2_CONFIG.iterations,
+          kdfMemory: DEFAULT_ARGON2_CONFIG.memoryMiB,
+          kdfParallelism: DEFAULT_ARGON2_CONFIG.parallelism,
+        });
+      }
+      if (url === "/vault/identity/connect/token") {
+        const params = new URLSearchParams(body);
+        if (!stored || params.get("password") !== stored.mpHash) {
+          return new Response("invalid_grant", { status: 400 });
+        }
+        return json({
+          access_token: "test-token",
+          expires_in: 3600,
+          token_type: "Bearer",
+          Key: stored.key,
+          Kdf: DEFAULT_ARGON2_CONFIG.kdfType,
+          KdfIterations: DEFAULT_ARGON2_CONFIG.iterations,
+        });
+      }
+      if (url.startsWith("/vault/api/sync")) {
+        return json({ ciphers: [], profile: { email: SYNTHETIC_EMAIL } });
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    await import("./main");
+    await vi.waitFor(() => expect(document.querySelector("form")).toBeTruthy());
+
+    // The bug: this used to render the manual email+password form instead.
+    expect(document.querySelector('input[type="email"]')).toBeNull();
+    expect(document.body.textContent).toContain("Choose a master password");
+
+    const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement;
+    passwordInput.value = PASSWORD;
+    document
+      .querySelector("form")!
+      .dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+
+    await vi.waitFor(() => expect(document.querySelector(".bar")).toBeTruthy(), {
+      timeout: 12000,
+    });
+  });
 });

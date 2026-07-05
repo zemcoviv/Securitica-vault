@@ -137,9 +137,19 @@ password is whatever you set on first open.
   (`server/vaultwarden_admin.py`). Check the `miniapp-server` container logs
   for `provision_failed`/`server_misconfigured`.
 - **"Securitica requires Argon2id"** only applies to the manual-login
-  fallback (no `VITE_SERVER_URL` configured, e.g. local `npm run dev` against
-  a pre-existing Vaultwarden account). Auto-provisioned accounts always use
+  fallback (no thin backend configured, e.g. local `npm run dev` against a
+  pre-existing Vaultwarden account). Auto-provisioned accounts always use
   Argon2id (BRIEF §5.1) — there is no user-visible KDF choice in that path.
+- **First open still asks for email+password instead of just a master
+  password.** Fixed as of this commit — `config.hasThinBackend` used to be
+  computed from `serverUrl === ""`, but `server/Dockerfile` always builds
+  the production bundle with `VITE_SERVER_URL=""` (same-origin, correct),
+  so *every* real deployment was silently falling back to the manual form.
+  It's now derived from Vite's own `DEV`/`PROD` distinction instead
+  (`miniapp/src/config.ts`), which correctly stays `false` for any `vite
+  build` output regardless of `serverUrl`'s value. If you still see the old
+  behavior, rebuild the `miniapp-server` image (`docker compose up -d
+  --build miniapp-server`) — it's serving a stale bundle.
 
 ---
 
